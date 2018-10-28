@@ -1,24 +1,36 @@
 // @flow
-import { get, GLOBAL_INDEX, FUNCTION_INDEX } from "../semantics/metadata";
-import { EXTERN_GLOBAL, EXTERN_FUNCTION } from "../emitter/external_kind";
-import invariant from "invariant";
-import type { NodeType, IntermediateExportType } from "./flow/types";
+import { GLOBAL_INDEX, FUNCTION_INDEX } from '../semantics/metadata';
+import {
+  EXTERN_GLOBAL,
+  EXTERN_MEMORY,
+  EXTERN_TABLE,
+  EXTERN_FUNCTION,
+} from '../emitter/external_kind';
+import type { NodeType, IntermediateExportType } from './flow/types';
+
+const externaKindMap = {
+  Memory: EXTERN_MEMORY,
+  Table: EXTERN_TABLE,
+};
 
 export default function generateExport(node: NodeType): IntermediateExportType {
-  const functionIndexMeta = get(FUNCTION_INDEX, node);
-  const globalIndexMeta = get(GLOBAL_INDEX, node);
+  const functionIndexMeta = node.meta[FUNCTION_INDEX];
+  const globalIndexMeta = node.meta[GLOBAL_INDEX];
 
-  if (globalIndexMeta) {
+  if (globalIndexMeta != null) {
+    const kind = externaKindMap[String(node.type)] || EXTERN_GLOBAL;
+    const index = [EXTERN_MEMORY, EXTERN_TABLE].includes(kind)
+      ? 0
+      : globalIndexMeta;
     return {
-      index: globalIndexMeta.payload,
-      kind: EXTERN_GLOBAL,
+      index,
+      kind,
       field: node.value,
     };
   }
 
-  invariant(functionIndexMeta, "Unknown Export");
   return {
-    index: functionIndexMeta.payload,
+    index: functionIndexMeta,
     kind: EXTERN_FUNCTION,
     field: node.value,
   };

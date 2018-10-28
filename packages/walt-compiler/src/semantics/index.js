@@ -12,63 +12,118 @@
  */
 
 // @flow
-import Syntax from "../Syntax";
-import mapNode from "../utils/map-node";
-import { mapImport } from "./map-import";
-import mapFunctionNode from "./map-function";
-import closureImports from "../closure-plugin/imports";
-import { parseGlobalDeclaration } from "./map-function/declaration";
-import mapStructNode from "./map-struct";
-import { mapGeneric } from "./map-generic";
-import hasNode from "../utils/has-node";
-import { astMeta } from "./metadata";
-import type { NodeType } from "../flow/types";
+import { combineParsers } from '../plugin';
+import { map } from 'walt-parser-tools/map-node';
+import { enter as enterScope } from 'walt-parser-tools/scope';
+import { AST_METADATA } from './metadata';
+import core from '../core';
+import base from '../base';
+import _types from '../core/types';
+import unary from '../core/unary';
+import _function from '../core/function';
+import _imports from '../core/imports';
+import booleans from '../core/bool';
+import array from '../core/array';
+import memory from '../core/memory';
+import _statics from '../core/statics';
+import functionPointer from '../core/function-pointer';
+import struct from '../core/struct';
+import native from '../core/native';
+import defaultArguments from '../syntax-sugar/default-arguments';
+import sizeof from '../syntax-sugar/sizeof';
+import { GLOBAL_INDEX } from './metadata.js';
+import type {
+  NodeType,
+  Context,
+  SemanticOptions,
+  SemanticsFactory,
+} from '../flow/types';
 
-export default function semantics(ast: NodeType): NodeType {
-  const functions: { [string]: NodeType } = {};
-  const globals: { [string]: NodeType } = {};
-  const types: { [string]: NodeType } = {};
-  const userTypes: { [string]: NodeType } = {};
-  const table: { [string]: NodeType } = {};
-  const hoist: NodeType[] = [];
-  const hoistImports: NodeType[] = [];
+export const builtinSemantics = [
+  base,
+  core,
+  _imports,
+  _types,
+  unary,
+  _function,
+  booleans,
+  array,
+  memory,
+  _statics,
+  functionPointer,
+  struct,
+  native,
+  sizeof,
+  defaultArguments,
+];
 
-  if (hasNode(Syntax.Closure, ast)) {
-    ast = { ...ast, params: [...closureImports(), ...ast.params] };
-  }
-  // Types have to be pre-parsed before the rest of the program
-  const astWithTypes = mapNode({
-    [Syntax.Typedef]: (node, _) => {
-      types[node.value] = node;
-      return node;
-    },
-    [Syntax.GenericType]: mapGeneric({ types }),
-  })(ast);
+const getBuiltInParsers = (): SemanticsFactory[] => {
+  return [
+    base().semantics,
+    core().semantics,
+    _imports().semantics,
+    _types().semantics,
+    unary().semantics,
+    _function().semantics,
+    booleans().semantics,
+    array().semantics,
+    memory().semantics,
+    _statics().semantics,
+    functionPointer().semantics,
+    struct().semantics,
+    native().semantics,
+    sizeof().semantics,
+    defaultArguments().semantics,
+  ];
+};
 
-  const patched = mapNode({
-    [Syntax.Typedef]: (_, __) => _,
-    // Read Import node, attach indexes if non-scalar
-    [Syntax.Import]: mapImport({ functions, types }),
-    [Syntax.Declaration]: parseGlobalDeclaration(false, { globals }),
-    [Syntax.ImmutableDeclaration]: parseGlobalDeclaration(true, { globals }),
-    [Syntax.Struct]: mapStructNode({ userTypes }),
-    [Syntax.FunctionDeclaration]: mapFunctionNode({
-      hoist,
-      hoistImports,
-      types,
-      globals,
-      functions,
-      userTypes,
-      table,
-    }),
-  })(astWithTypes);
+// Return AST with full transformations applied
+function semantics(
+  ast: NodeType,
+  extraSemantics: SemanticsFactory[],
+  options: SemanticOptions
+): NodeType {
+  // Generate all the plugin instances with proper options
+  const plugins = [...getBuiltInParsers(), ...extraSemantics];
 
+  // Here each semantics parser will receive a reference to the parser & fragment
+  // this allows a semantic parser to utilize the same grammar rules as the rest
+  // of the program.
+  const combined = combineParsers(plugins.map(p => p(options)));
+
+  // The context is what we use to transfer state from one parser to another.
+  // Global state like type information and scope chains for example.
+  const context: Context = {
+    functions: {},
+    types: {},
+    userTypes: {},
+    table: {},
+    hoist: [],
+    statics: {},
+    path: [],
+    scopes: enterScope([], GLOBAL_INDEX),
+    memories: [],
+    tables: [],
+  };
+  // Parse the current ast
+  const parsed = map(combined)([ast, context]);
+
+  const { functions, scopes, types, userTypes, statics, hoist } = context;
   return {
-    ...patched,
-    meta: [
+    ...parsed,
+    meta: {
+      ...parsed.meta,
       // Attach information collected to the AST
-      astMeta({ functions, globals, types, userTypes }),
-    ],
-    params: [...hoistImports, ...patched.params, ...hoist],
+      [AST_METADATA]: {
+        functions,
+        globals: scopes[0],
+        types,
+        userTypes,
+        statics,
+      },
+    },
+    params: [...parsed.params, ...hoist],
   };
 }
+
+export default semantics;

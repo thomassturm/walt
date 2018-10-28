@@ -1,4 +1,5 @@
 // @flow
+export const eol = (char: string) => char === '\n';
 
 // Base Character stream class
 class Stream {
@@ -8,16 +9,11 @@ class Stream {
   col: number;
   lines: string[];
 
-  constructor(input: string = "") {
+  constructor(input: string) {
     this.pos = this.line = this.col = 0;
     this.input = input;
-    this.lines = input.split("\n");
+    this.lines = input.split('\n');
     this.newLine();
-  }
-
-  // Stop parsing and throw a fatal error
-  die(reason: string) {
-    throw new Error(reason);
   }
 
   // Peek at a character at current position
@@ -29,7 +25,7 @@ class Stream {
   next(): string {
     const char = this.input.charAt(this.pos++);
 
-    if (Stream.eol(char)) {
+    if (this.eol(char)) {
       this.newLine();
     } else {
       this.col++;
@@ -45,24 +41,24 @@ class Stream {
   }
 
   // Is the character an end of line
-  static eol(char: string): boolean {
-    return char === "\n";
+  eol(char: string): boolean {
+    return char === '\n';
   }
 
   // Is the character an end of file
-  static eof(char: string): boolean {
-    return char === "";
+  eof(char: string): boolean {
+    return char === '';
   }
 
-  // Is the charater a whitespace
+  // Is the character a whitespace
   static whitespace(char: string): boolean {
     return (
-      char === "\n" ||
-      char === " " ||
-      char === "\t" ||
-      char === "\v" ||
-      char === "\r" ||
-      char === "\f"
+      char === '\n' ||
+      char === ' ' ||
+      char === '\t' ||
+      char === '\v' ||
+      char === '\r' ||
+      char === '\f'
     );
   }
 }

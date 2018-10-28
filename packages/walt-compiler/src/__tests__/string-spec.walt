@@ -1,0 +1,50 @@
+import {
+  Assert
+} from '../walt/tests';
+import { assert: Assert as test, memory: Memory } from 'env';
+import {
+  getStringIterator,
+  next as stringNext,
+  reset,
+  stringLength,
+  indexOf
+} from '../walt/string';
+
+import {
+  // Type
+  StringIterator
+} from '../walt/string';
+
+function countCharacter(ptr: i32, character: i32) : i32 {
+  const iterator: StringIterator = getStringIterator(ptr);
+  let result: i32 = 0;
+
+  stringNext(iterator);
+  while(iterator.done == false) {
+    if (iterator.value == character) {
+      result += 1;
+    }
+    stringNext(iterator);
+  }
+
+  return result;
+}
+
+export function run() {
+  // FIXME: emoji characters have regressed, while they do show up in the
+  //        string they are not countable, probably due to the lexer :(
+  // test("string iterator, count emojis", countCharacter("aabb😂😂😂 aaa😂", '😂'), 4);
+  test("string iterator, count ASCII", countCharacter("aabbccddaa   aaa", 'a'), 7);
+  test("string iterator, indexOf ascii", indexOf("quick brown fox", "brown"), 6);
+  test(
+    "string iterator, indexOf utf8",
+    indexOf('Liberté, égalité, fraternité for all utf encodings!', 'égalité'),
+    9
+  );
+  const text: i32 = "large string encoding --> We need to test that strings of length of 128+ bytes work. On a plane, so could not post lorem ipsum, this should be of correct length though. Unicode for coverage √";
+  test(text, stringLength(text), 191);
+
+  // // Fail this spec to see the text, but this tests that multi-line strings do work
+  test(`multi line
+  strings`, true, true);
+}

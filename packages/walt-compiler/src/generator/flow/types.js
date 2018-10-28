@@ -1,6 +1,7 @@
 // @flow
-import type { NodeType } from "../../flow/types";
-export type { NodeType } from "../../flow/types";
+import type OutputStream from '../../utils/output-stream';
+import type { NodeType } from '../../flow/types';
+export type { NodeType };
 export type RawOpcodeType = {
   result: ?number,
   first: ?number,
@@ -60,8 +61,23 @@ export type IntermediateTableType = {
 };
 export type IntermediateMemoryType = { max: number, initial: number };
 
+export type FunctionNameType = { index: number, name: string };
+export type NameSectionType = {
+  module: string,
+  functions: FunctionNameType[],
+  locals: Array<{
+    index: number,
+    locals: Array<{ index: number, name: string }>,
+  }>,
+};
+export type DataSectionType = Array<{
+  offset: number,
+  data: OutputStream,
+}>;
+
 export type ProgramType = {
   // Setup keys needed for the emitter
+  Version: number,
   Types: IntermediateTypeDefinitionType[],
   Code: IntermediateFunctionType[],
   Exports: IntermediateExportType[],
@@ -72,4 +88,7 @@ export type ProgramType = {
   Memory: IntermediateMemoryType[],
   Table: IntermediateTableType[],
   Artifacts: NodeType[],
+  Name: NameSectionType,
+  Data: DataSectionType,
+  Start: number[],
 };

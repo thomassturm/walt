@@ -1,13 +1,9 @@
-import test from "ava";
-import { mockContext } from "../utils/mocks";
-import parseImport from "../parser/import";
-import generateImportFromNode from "../generator/import";
-import compile from "..";
+import test from 'ava';
+import parser from '../parser';
+import generateImportFromNode from '../generator/import';
+import { compileAndRun } from '../utils/test-utils';
 
-const compileAndRun = (src, importsObj = {}) =>
-  WebAssembly.instantiate(compile(src), importsObj);
-
-test("function typed imports", t => {
+test('function typed imports', t => {
   // What is happening here:
   // We are creating a module which takes an import of console.log
   // we provide this import to the module in the second param. We
@@ -34,12 +30,12 @@ test("function typed imports", t => {
   });
 });
 
-test("function pointers", t =>
+test('function pointers', t =>
   new Promise(resolve => {
-    const table = new WebAssembly.Table({ element: "anyfunc", initial: 10 });
+    const table = new WebAssembly.Table({ element: 'anyfunc', initial: 10 });
     compileAndRun(
       `
-      import { table: Table } from 'env';
+      import { table: Table<{ initial: 20 }> } from 'env';
       import { setTimeout: Later } from 'env';
       import { log: Log } from 'env';
 
@@ -70,10 +66,10 @@ test("function pointers", t =>
     ).then(result => result.instance.exports.test());
   }));
 
-test("import expression generator", t => {
-  const ctx = mockContext(
+test('import expression generator', t => {
+  const node = parser(
+    [],
     "import { field: i32, foo: CustomType, bar: SomeOtherType } from 'env';"
   );
-  const node = parseImport(ctx);
-  t.snapshot(generateImportFromNode(node));
+  t.snapshot(generateImportFromNode(node.params[0]));
 });

@@ -1,6 +1,6 @@
-import test from "ava";
-import compile, { debug, getIR } from "..";
-import compose from "../utils/compose";
+import test from 'ava';
+import { compile, debug, getIR } from '..';
+import compose from '../utils/compose';
 
 const walt = `export function constant(): f32 {
   return 0.5;
@@ -24,13 +24,20 @@ export function _64FloatTypecast(x: f64): f32 {
 }
 export function promotions(): f32 {
   return 2.5 + 2 + 0.5 * (10/ 5);
-}`;
+}
 
-test("typecasts work", t => {
+export function promoteF32toF64(): f64 {
+  const x: f64 = 2;
+  const y: f32 = 2;
+  return x + y;
+}
+`;
+
+test('typecasts work', t => {
   const getWasm = compose(debug, getIR);
   const wasm = getWasm(walt);
   t.snapshot(wasm);
-  return WebAssembly.instantiate(compile(walt)).then(result => {
+  return WebAssembly.instantiate(compile(walt).buffer()).then(result => {
     t.is(result.instance.exports.constant(), 0.5);
     t.is(result.instance.exports.variableTypecast(2), 7);
     t.is(result.instance.exports._32IntTypecast(2.0), 4);
@@ -38,5 +45,6 @@ test("typecasts work", t => {
     t.is(result.instance.exports._64IntTypecast(), 4);
     t.is(result.instance.exports._64FloatTypecast(2), 4);
     t.is(result.instance.exports.promotions(), 5.5);
+    t.is(result.instance.exports.promoteF32toF64(), 4);
   });
 });

@@ -1,12 +1,12 @@
-import test from "ava";
-import compile from "..";
+import test from 'ava';
+import { compile } from '..';
 
 const compileAndRun = (src, importsObj = {}) =>
-  WebAssembly.instantiate(compile(src), importsObj);
+  WebAssembly.instantiate(compile(src).buffer(), importsObj);
 const outputIs = (t, value, input) => result =>
   t.is(result.instance.exports.test(input), value);
 
-test("for loop params", t =>
+test('for loop params', t =>
   compileAndRun(
     `export function test(): i32 {
   let i: i32 = 10;
@@ -18,7 +18,7 @@ test("for loop params", t =>
 }`
   ).then(outputIs(t, 3)));
 
-test("for loop", t =>
+test('for loop', t =>
   compileAndRun(`
   export function test(x: i32): i32 {
     let y: i32 = 1;
@@ -30,20 +30,20 @@ test("for loop", t =>
   }
   `).then(outputIs(t, -5, 5)));
 
-test("while loop", t =>
+test('while loop', t =>
   compileAndRun(`
   export function test(x: i32): i32 {
     let y: i32 = 0;
     let i: i32 = 0;
-    while(y < x) {
-      i = 0 - y;
+    while(y != x) {
+      i -= y;
       y += 1;
     }
     return i;
   }
-  `).then(outputIs(t, -5, 5)));
+  `).then(outputIs(t, -10, 5)));
 
-test("break", t => {
+test('break', t => {
   return compileAndRun(
     `export function test() : i32 {
   let i: i32 = 0;

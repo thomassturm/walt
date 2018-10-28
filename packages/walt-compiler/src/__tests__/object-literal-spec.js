@@ -1,9 +1,9 @@
-import test from "ava";
-import { getIR, debug } from "..";
+import test from 'ava';
+import { getIR, debug } from '..';
 
-test("objects", t => {
+test('objects', t => {
   const walt = `
-  const memory: Memory = { 'initial': 1 };
+  const memory: Memory = { initial: 1 };
   type TestType = { x: i32, y: i32, z: i32 };
   type MixedType = { x: i32, y: f32, z: i64, w: f64 };
 
@@ -59,9 +59,9 @@ test("objects", t => {
   return WebAssembly.instantiate(wasm.buffer()).then(result => {
     const exports = result.instance.exports;
 
-    t.is(exports.testSubscript(), 4, "Regular old string subscripts");
-    t.is(exports.testAlignment(), 6, "Alignment of objects, array lenses/ptrs");
-    t.is(exports.testMixedTypeProperties(), 8, "Mixed bit-width object props");
-    t.is(exports.testObjectSyntaxSugar(2, 2), 6, "Object syntax sugar");
+    t.is(exports.testSubscript(), 4, 'Regular old string subscripts');
+    t.is(exports.testAlignment(), 6, 'Alignment of objects, array lenses/ptrs');
+    t.is(exports.testMixedTypeProperties(), 8, 'Mixed bit-width object props');
+    t.is(exports.testObjectSyntaxSugar(2, 2), 6, 'Object syntax sugar');
   });
 });

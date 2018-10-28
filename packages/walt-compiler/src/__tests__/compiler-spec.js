@@ -1,127 +1,105 @@
-import test from "ava";
-import compile from "..";
+import test from 'ava';
+import makeParser from '../parser';
+import { makeFragment } from '../parser/fragment';
+import validate from '../validation';
+import semantics from '../semantics';
+import { compile } from '..';
+import print from 'walt-buildtools/print';
+import path from 'path';
+import { harness, compileAndRun } from '../utils/test-utils';
 
-const compileAndRun = (src, imports) =>
-  WebAssembly.instantiate(compile(src), imports);
-
-test("empty module compilation", t =>
-  compileAndRun("").then(({ module, instance }) => {
+test('empty module compilation', t =>
+  compileAndRun('').then(({ module, instance }) => {
     t.is(instance instanceof WebAssembly.Instance, true);
     t.is(module instanceof WebAssembly.Module, true);
   }));
 
-test("global declaration compilation", t =>
-  compileAndRun("let answer: i32 = 42;").then(({ module, instance }) => {
-    t.is(instance instanceof WebAssembly.Instance, true);
-    t.is(module instanceof WebAssembly.Module, true);
-  }));
-
-test("global indexes compile correctly", t =>
-  compileAndRun(
-    `import { two: TwoType, alsoTwo: TwoType } from 'env';
-  type TwoType = () => i32;
-  const memory: Memory = { 'initial': 1 };
-  const bar: i32 = 2;
-  let foo: i32 = 3;
-  let baz: i32 = 0;
-  let x: i32;
-  export function test(): i32 {
-    x = 1;
-    foo = two();
-    baz = alsoTwo();
-    return foo + baz;
-  }`,
-    { env: { two: () => 2, alsoTwo: () => 2 } }
-  ).then(module => t.is(module.instance.exports.test(), 4)));
-
-test("global constant exports", t =>
-  compileAndRun(`
-      export const a: i32 = 42;
-      export const b: f64 = 42.6;
-  `).then(result => {
-    t.is(result.instance.exports.a, 42);
-    t.is(result.instance.exports.b, 42.6);
-  }));
-
-test("function exports", t =>
-  compileAndRun(`
-      export function echo() : i32 {
-        return 48;
-      }
-    `).then(result => {
-    t.is(result.instance.exports.echo(), 48);
-  }));
-
-test("function locals", t =>
-  compileAndRun(`
-    export function echo() : i32 {
-      const x : i32 = 42;
-      return x;
-    }
-  `).then(result => {
-    t.is(result.instance.exports.echo(), 42);
-  }));
-
-test.skip("exports must have a value", t =>
-  t.throws(() =>
-    compileAndRun(`
-  export const x: i32;
-  `)
-  ));
-
-test("function scope", t =>
-  compileAndRun(`
-    const x : i32 = 11;
-    export function test() : i32 {
-      const x : i32 = 42;
-      return x;
-    }
-  `).then(result => t.is(result.instance.exports.test(), 42)));
-
-test("global reference in function scope", t =>
-  compileAndRun(`
-    const x : i32 = 42;
-    export function test() : i32 {
-      return x;
-    }
-  `).then(result => t.is(result.instance.exports.test(), 42)));
-
-test("compiles large signed consants correctly", t =>
-  compileAndRun(`
-    export function test(): i32 {
-      return 126;
-    }
-  `).then(result => t.is(result.instance.exports.test(), 126)));
-
-test("compiles large signed global consants correctly", t =>
-  compileAndRun(`
-    const x: i32 = 126;
-    export function test(): i32 {
-      return x;
-    }
-  `).then(result => t.is(result.instance.exports.test(), 126)));
-
-test("compiles math", t =>
-  compileAndRun(`
-    export function test(): i32 {
-      return 2 + 2 - 4;
-    }
-  `).then(result => t.is(result.instance.exports.test(), 0)));
-
-test("invalid imports throw", t =>
+test('invalid imports throw', t =>
   t.throws(() => compile("import foo from 'bar'")));
 
-test("64 bit constant encoding", t => {
-  return compileAndRun(`
-    function number(): i64 {
-      const x: i64 = 42;
-      return x;
+test(
+  'compiler',
+  harness(path.resolve(__dirname, './compiler-spec.walt'), {
+    externalConst: 42,
+  })
+);
+
+test(
+  'statics',
+  harness(path.resolve(__dirname, './statics-spec.walt'), null, {
+    printBinary: false,
+    printNode: false,
+  })
+);
+
+test('chained subscripts', t => {
+  return harness(path.resolve(__dirname, './subscripts-spec.walt'), null, {
+    printBinary: false,
+    printNode: false,
+  })(t);
+});
+
+test('throws', t => {
+  const run = harness(path.resolve(__dirname, './throw-spec.walt'), null, {
+    printBinary: false,
+    printNode: false,
+  });
+
+  return run(t).catch(error => {
+    t.snapshot(error);
+  });
+});
+
+test('import as', t => {
+  const parser = makeParser([]);
+  const fragment = makeFragment(parser);
+
+  const node = semantics(
+    parser(`
+import {
+  getStringIterator,
+  next as string_next,
+  reset,
+  stringLength,
+  indexOf
+} from '../walt/string';
+`),
+    [],
+    { parser, fragment }
+  );
+  const error = t.throws(() => validate(node, {}));
+  t.snapshot(print(node));
+  t.snapshot(error.message);
+});
+
+test('bool types', t => {
+  const source = `
+    const b : bool = false;
+    function foo() : bool {
+      return true;
     }
-    function two() : i64 {
-      return 2;
+
+    function bar(): bool {
+      return false;
     }
-    export function test(): i32 {
-      return number(): i32;
+
+    export function test() : bool {
+      return bar() || foo();
     }
-  `).then(result => t.is(result.instance.exports.test(), 42));
+  `;
+
+  return compileAndRun(source).then(({ instance }) => {
+    t.is(instance.exports.test(), 1);
+  });
+});
+
+test('memory & table exports', t => {
+  const source = `
+    export const memory: Memory = { initial: 1 };
+    export const table: Table = { initial: 1, element: 'anyfunc' };
+  `;
+  return compileAndRun(source).then(({ instance }) => {
+    t.is(instance.exports.memory instanceof WebAssembly.Memory, true);
+    t.is(instance.exports.table instanceof WebAssembly.Table, true);
+  });
 });

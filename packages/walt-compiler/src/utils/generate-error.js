@@ -10,25 +10,23 @@ export default function generateErrorString(
   filename: string,
   func: string
 ): string {
-  const { line, col } = marker.start;
-  const { col: end } = marker.end;
-  const Line = (() => {
-    if (marker.start.sourceLine !== marker.end.sourceLine) {
-      return marker.start.sourceLine + "\n" + marker.end.sourceLine;
-    }
-    return marker.end.sourceLine;
-  })();
+  const line = marker.start.line;
+  const col = marker.start.col;
+  const end = marker.end.col;
+  const Line = marker.end.sourceLine;
 
-  const highlight = new Array(end - col + 1).join("^").padStart(end, " ");
+  const highlight = new Array(end - col + 2)
+    .join('^')
+    .padStart(marker.start.col - 2, ' ');
   return (
-    "\n" +
+    '\n' +
     Line +
-    "\n" +
+    '\n' +
     highlight +
     ` ${error}` +
-    "\n" +
+    '\n' +
     msg +
-    "\n" +
+    '\n' +
     `  at ${func} (${filename}:${line}:${col})`
   );
 }

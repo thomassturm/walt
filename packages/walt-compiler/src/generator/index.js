@@ -1,32 +1,35 @@
 // @flow
-import invariant from "invariant";
-import Syntax from "../Syntax";
-import mapSyntax from "./map-syntax";
-import mergeBlock from "./merge-block";
-import walkNode from "../utils/walk-node";
-import mapNode from "../utils/map-node";
-import generateElement from "./element";
-import generateExport from "./export";
-import generateMemory from "./memory";
-import generateTable from "./table";
-import generateInitializer from "../generator/initializer";
-import generateImport from "./import";
-import generateType from "./type";
-import { generateValueType } from "./utils";
-import { generateImplicitFunctionType } from "./type";
+import invariant from 'invariant';
+import Syntax from 'walt-syntax';
+import walkNode from 'walt-parser-tools/walk-node';
+import { mapNode } from 'walt-parser-tools/map-node';
+import mapSyntax from './map-syntax';
+import mergeBlock from './merge-block';
+import generateElement from './element';
+import generateExport from './export';
+import generateMemory from './memory';
+import generateTable from './table';
+import generateInitializer from '../generator/initializer';
+import generateImport from './import';
+import generateType from './type';
+import generateData from './generate-data';
+import { generateValueType } from './utils';
+import { generateImplicitFunctionType } from './type';
 import {
-  get,
   GLOBAL_INDEX,
   FUNCTION_INDEX,
   FUNCTION_METADATA,
-  typeIndex as setMetaTypeIndex,
-} from "../semantics/metadata";
+  TYPE_INDEX,
+  AST_METADATA,
+} from '../semantics/metadata';
 
-import type { NodeType, ProgramType } from "./flow/types";
+import type { NodeType, GeneratorOptions } from '../flow/types';
 import type {
+  ProgramType,
   IntermediateOpcodeType,
   IntermediateVariableType,
-} from "./flow/types";
+} from './flow/types';
+const DATA_SECTION_HEADER_SIZE = 4;
 
 export const generateCode = (
   func: NodeType
@@ -34,11 +37,11 @@ export const generateCode = (
   // eslint-disable-next-line
   const [argsNode, resultNode, ...body] = func.params;
 
-  const metadata = get(FUNCTION_METADATA, func);
-  invariant(body, "Cannot generate code for function without body");
-  invariant(metadata, "Cannot generate code for function without metadata");
+  const metadata = func.meta[FUNCTION_METADATA];
+  invariant(body, 'Cannot generate code for function without body');
+  invariant(metadata, 'Cannot generate code for function without metadata');
 
-  const { locals, argumentsCount } = metadata.payload;
+  const { locals, argumentsCount } = metadata;
 
   const block = {
     code: [],
@@ -54,29 +57,47 @@ export const generateCode = (
     debug: `Function ${func.value}`,
   };
 
-  // NOTE: Declarations have a side-effect of changing the local count
-  //       This is why mapSyntax takes a parent argument
-  const mappedSyntax = body.map(mapSyntax(block));
-  if (mappedSyntax) {
-    block.code = mappedSyntax.reduce(mergeBlock, []);
-  }
+  block.code = body.map(mapSyntax(block)).reduce(mergeBlock, []);
 
   return block;
 };
 
-export default function generator(ast: NodeType): ProgramType {
+function generator(ast: NodeType, config: GeneratorOptions): ProgramType {
   const program: ProgramType = {
+    Version: config.version,
     Types: [],
+    Start: [],
+    Element: [],
     Code: [],
     Exports: [],
     Imports: [],
     Globals: [],
-    Element: [],
     Functions: [],
     Memory: [],
     Table: [],
     Artifacts: [],
+    Data: [],
+    Name: {
+      module: config.filename,
+      functions: [],
+      locals: [],
+    },
   };
+
+  let { statics } = ast.meta[AST_METADATA];
+  if (config.linker != null) {
+    statics = {
+      ...config.linker.statics,
+      ...statics,
+    };
+  }
+  const { map: staticsMap, data } = generateData(
+    statics,
+    DATA_SECTION_HEADER_SIZE
+  );
+  if (Object.keys(statics).length > 0) {
+    program.Data = data;
+  }
 
   const findTypeIndex = (functionNode: NodeType): number => {
     const search = generateImplicitFunctionType(functionNode);
@@ -108,13 +129,39 @@ export default function generator(ast: NodeType): ProgramType {
 
       typeNode = {
         ...node,
-        meta: [...node.meta, setMetaTypeIndex(typeIndex)],
+        meta: { ...node.meta, [TYPE_INDEX]: typeIndex },
       };
-
       typeMap[node.value] = { typeIndex, typeNode };
       return typeNode;
     },
-  })(ast);
+  })(
+    mapNode({
+      [Syntax.Import]: (node, _) => node,
+      [Syntax.StringLiteral]: (node, _ignore) => {
+        const { value } = node;
+
+        // Don't replace any statics which are not mapped. For example table
+        // definitions have StringLiterals, but these literals do not get converted.
+        if (staticsMap[value] == null) {
+          return node;
+        }
+
+        return {
+          ...node,
+          value: String(staticsMap[value]),
+          Type: Syntax.Constant,
+        };
+      },
+      [Syntax.StaticValueList]: node => {
+        const { value } = node;
+        return {
+          ...node,
+          value: String(staticsMap[value]),
+          Type: Syntax.Constant,
+        };
+      },
+    })(ast)
+  );
 
   const nodeMap = {
     [Syntax.Typedef]: (_, __) => _,
@@ -123,23 +170,21 @@ export default function generator(ast: NodeType): ProgramType {
       program.Exports.push(generateExport(nodeToExport));
     },
     [Syntax.ImmutableDeclaration]: node => {
-      const globalMeta = get(GLOBAL_INDEX, node);
-      if (globalMeta !== null) {
+      const globalMeta = node.meta[GLOBAL_INDEX];
+      if (globalMeta != null) {
         switch (node.type) {
-          case "Memory":
+          case 'Memory':
             program.Memory.push(generateMemory(node));
             break;
-          case "Table":
+          case 'Table':
             program.Table.push(generateTable(node));
             break;
-          default:
-            program.Globals.push(generateInitializer(node));
         }
       }
     },
     [Syntax.Declaration]: node => {
-      const globalMeta = get(GLOBAL_INDEX, node);
-      if (globalMeta !== null) {
+      const globalMeta = node.meta[GLOBAL_INDEX];
+      if (globalMeta != null) {
         program.Globals.push(generateInitializer(node));
       }
     },
@@ -159,26 +204,13 @@ export default function generator(ast: NodeType): ProgramType {
       })();
 
       const patched = mapNode({
-        [Syntax.Type]: typeNode => {
-          const userDefinedType = typeMap[typeNode.value];
-          if (userDefinedType != null) {
-            return {
-              ...typeNode,
-              meta: [...typeNode.meta, setMetaTypeIndex(userDefinedType.index)],
-            };
-          }
-
-          return typeNode;
-        },
-        [Syntax.FunctionPointer]: pointer => {
-          const metaFunctionIndex = get(FUNCTION_INDEX, pointer);
-          if (metaFunctionIndex) {
-            const functionIndex = metaFunctionIndex.payload;
-            let tableIndex = findTableIndex(functionIndex);
-            if (tableIndex < 0) {
-              tableIndex = program.Element.length;
-              program.Element.push(generateElement(functionIndex));
-            }
+        FunctionPointer(pointer) {
+          const metaFunctionIndex = pointer.meta[FUNCTION_INDEX];
+          const functionIndex = metaFunctionIndex;
+          let tableIndex = findTableIndex(functionIndex);
+          if (tableIndex < 0) {
+            tableIndex = program.Element.length;
+            program.Element.push(generateElement(functionIndex));
           }
           return pointer;
         },
@@ -186,12 +218,40 @@ export default function generator(ast: NodeType): ProgramType {
 
       // Quick fix for shifting around function indices. These don't necessarily
       // get written in the order they appear in the source code.
-      const index = get(FUNCTION_INDEX, node);
-      invariant(index, "Function index must be set");
+      const index = node.meta[FUNCTION_INDEX];
+      invariant(index != null, 'Function index must be set');
 
-      program.Functions[index.payload] = typeIndex;
+      program.Functions[index] = typeIndex;
       // We will need to filter out the empty slots later
-      program.Code[index.payload] = generateCode(patched);
+      program.Code[index] = generateCode(patched);
+
+      if (patched.value === 'start') {
+        program.Start.push(index);
+      }
+
+      if (config.encodeNames) {
+        program.Name.functions.push({
+          index,
+          name: node.value,
+        });
+        const functionMetadata = node.meta[FUNCTION_METADATA];
+        if (
+          functionMetadata != null &&
+          Object.keys(functionMetadata.locals).length
+        ) {
+          program.Name.locals[index] = {
+            index,
+            locals: Object.entries(functionMetadata.locals).map(
+              ([name, local]: [string, any]) => {
+                return {
+                  name,
+                  index: Number(local.meta['local/index']),
+                };
+              }
+            ),
+          };
+        }
+      }
     },
   };
 
@@ -202,3 +262,5 @@ export default function generator(ast: NodeType): ProgramType {
 
   return program;
 }
+
+export default generator;

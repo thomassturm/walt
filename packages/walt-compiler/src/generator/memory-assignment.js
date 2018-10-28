@@ -1,13 +1,13 @@
 // @flow
-import mapSyntax from "./map-syntax";
-import mergeBlock from "./merge-block";
-import opcode from "../emitter/opcode";
-import { get, TYPE_ARRAY } from "../semantics/metadata";
-import type { GeneratorType } from "./flow/types";
+import mapSyntax from './map-syntax';
+import mergeBlock from './merge-block';
+import opcode from '../emitter/opcode';
+import { TYPE_ARRAY } from '../semantics/metadata';
+import type { GeneratorType } from './flow/types';
 
 const generateMemoryAssignment: GeneratorType = (node, parent) => {
   const targetNode = node.params[0];
-  const isArray = get(TYPE_ARRAY, targetNode.params[0]);
+  const isArray = targetNode.params[0].meta[TYPE_ARRAY];
   let type = node.type;
 
   const block = node.params[0].params
@@ -21,7 +21,7 @@ const generateMemoryAssignment: GeneratorType = (node, parent) => {
       { kind: opcode.i32Const, params: [2] },
       { kind: opcode.i32Shl, params: [] },
     ]);
-    type = isArray.payload;
+    type = isArray;
   }
 
   // The sequence of opcodes to perfrom a memory load is
@@ -38,7 +38,7 @@ const generateMemoryAssignment: GeneratorType = (node, parent) => {
 
   // The last piece is the WASM opcode. Either load or store
   block.push({
-    kind: opcode[(type || "i32") + "Store"],
+    kind: opcode[String(type) + 'Store'],
     params: [
       // Alignment
       // TODO: make this extendible
